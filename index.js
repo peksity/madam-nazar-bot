@@ -241,12 +241,16 @@ async function checkShouldRespond(message) {
   // NEVER respond in counting channel
   if (message.channel.name === 'counting') return false;
   
-  if (message.channel.name === 'talk-to-nazar' || message.channel.name === 'talk-to-madam') return true;
+  // NEVER respond in OTHER bots' talk-to channels
+  const channelName = message.channel.name;
+  if (channelName.startsWith('talk-to-') && channelName !== 'talk-to-nazar' && channelName !== 'talk-to-madam') return false;
+  
+  if (channelName === 'talk-to-nazar' || channelName === 'talk-to-madam') return true;
   if (isInActiveConversation(message.channel.id, message.author.id)) return true;
   if (message.mentions.has(client.user)) return true;
   const content = message.content.toLowerCase();
   if (content.includes('nazar') || content.includes('madam') || content.includes('collector') || content.includes('fortune') || content.includes('tarot') || content.includes('spirits')) return true;
-  if (message.channel.name.includes('lfg') || message.channel.name.includes('log') || message.channel.name.includes('staff')) return false;
+  if (channelName.includes('lfg') || channelName.includes('log') || channelName.includes('staff')) return false;
   if (freeRoam) { const d = await freeRoam.shouldRespond(message); if (d.respond) return true; }
   if (isOtherBot(message.author.id)) return Math.random() < 0.35;
   return Math.random() < 0.20;

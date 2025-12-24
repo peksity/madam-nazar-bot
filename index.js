@@ -106,8 +106,12 @@ const activeConversations = new Map();
 // DAILY LOCATION POSTING - FIXED
 // ═══════════════════════════════════════════════════════════════════════════════
 async function postDailyLocation() {
+  console.log('[MADAM] Attempting to post daily location...');
+  
   try {
     const location = getTodaysLocation();
+    console.log('[MADAM] Today\'s location:', location.name, 'in', location.region);
+    
     const embed = new EmbedBuilder()
       .setTitle('🔮 Madam Nazar\'s Location Today')
       .setDescription(`*${location.description}*\n\nThe spirits have guided me to **${location.name}**...`)
@@ -120,39 +124,59 @@ async function postDailyLocation() {
       .setFooter({ text: 'Find me before I move on... Location changes daily at 6 AM UTC' })
       .setTimestamp();
 
-    // Method 1: Try hardcoded channel ID first
-    let channel = client.channels.cache.get(NAZAR_CHANNEL_ID);
+    let channel = null;
     
-    // Method 2: Search by name
+    // Method 1: Try to FETCH the hardcoded channel ID (not just cache)
+    try {
+      channel = await client.channels.fetch(NAZAR_CHANNEL_ID);
+      console.log('[MADAM] Found channel by ID:', channel?.name);
+    } catch (e) {
+      console.log('[MADAM] Could not fetch channel by ID:', e.message);
+    }
+    
+    // Method 2: Search all guilds by name
     if (!channel) {
+      console.log('[MADAM] Searching guilds for madam-nazar channel...');
       for (const guild of client.guilds.cache.values()) {
+        console.log('[MADAM] Checking guild:', guild.name);
+        
+        // Fetch channels to ensure cache is populated
+        await guild.channels.fetch();
+        
         const found = guild.channels.cache.find(c => 
           c.name === 'madam-nazar' || c.name === 'nazar-location'
         );
         if (found) {
           channel = found;
+          console.log('[MADAM] Found channel by name:', found.name, 'in', guild.name);
           break;
         }
       }
     }
     
     if (channel) {
+      console.log('[MADAM] Posting to channel:', channel.name, '(', channel.id, ')');
+      
       // Delete old location posts
       try {
         const msgs = await channel.messages.fetch({ limit: 10 });
         const oldPosts = msgs.filter(m => m.author.id === client.user.id && m.embeds.length > 0);
+        console.log('[MADAM] Found', oldPosts.size, 'old posts to delete');
         for (const [id, msg] of oldPosts) {
           await msg.delete().catch(() => {});
         }
-      } catch (e) {}
+      } catch (e) {
+        console.log('[MADAM] Could not delete old posts:', e.message);
+      }
       
       await channel.send({ embeds: [embed] });
-      console.log('[MADAM] Daily location posted:', location.name);
+      console.log('[MADAM] ✅ Daily location posted successfully:', location.name);
     } else {
-      console.log('[MADAM] Could not find madam-nazar channel');
+      console.log('[MADAM] ❌ Could not find madam-nazar channel in any guild');
+      console.log('[MADAM] Guilds available:', client.guilds.cache.map(g => g.name).join(', '));
     }
   } catch (e) { 
-    console.error('[MADAM] Daily location error:', e.message); 
+    console.error('[MADAM] ❌ Daily location error:', e.message); 
   }
 }
 
@@ -182,15 +206,16 @@ client.once(Events.ClientReady, async () => {
   
   // Schedule daily location post at 6 AM UTC
   cron.schedule('0 6 * * *', () => {
-    console.log('[MADAM] Scheduled daily post triggered');
+    console.log('[MADAM] Scheduled daily post triggered at 6 AM UTC');
     postDailyLocation();
   }, { timezone: 'UTC' });
   
-  // Post on startup after 15 second delay
+  // Post on startup after 30 second delay (give time for caches to populate)
+  console.log('[MADAM] Will post location in 30 seconds...');
   setTimeout(() => {
-    console.log('[MADAM] Posting startup location...');
+    console.log('[MADAM] Startup delay complete, posting location now...');
     postDailyLocation();
-  }, 15000);
+  }, 30000);
   
   if (autonomousChat && ALLOWED_CHANNEL_IDS.length > 0) {
     setTimeout(() => { 

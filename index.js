@@ -6,7 +6,7 @@
  * ██║ ╚═╝ ██║██║  ██║██████╔╝██║  ██║██║ ╚═╝ ██║    ██║ ╚████║██║  ██║███████╗██║  ██║██║  ██║
  * ╚═╝     ╚═╝╚═╝  ╚═╝╚═════╝ ╚═╝  ╚═╝╚═╝     ╚═╝    ╚═╝  ╚═══╝╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝╚═╝  ╚═╝
  * 
- * ULTIMATE EDITION - ALL SYSTEMS INTEGRATED + DAILY LOCATION POSTING
+ * ULTIMATE EDITION - FIXED DAILY LOCATION POSTING
  */
 
 require('dotenv').config();
@@ -15,19 +15,30 @@ const Anthropic = require('@anthropic-ai/sdk');
 const { Pool } = require('pg');
 const cron = require('node-cron');
 
-const { VoiceSystem, VoiceChatHandler } = require('./shared/voiceSystem');
-const { UltimateBotIntelligence } = require('./shared/ultimateIntelligence');
-const FreeRoamSystem = require('./freeroam');
-const { TheBrain } = require('./sentient');
-const { ApexBrain } = require('./apex');
-const autonomousChat = require('./shared/autonomousChat');
-const mediaGenerator = require('./shared/mediaGenerator');
+// Optional imports
+let VoiceSystem = null, VoiceChatHandler = null;
+try { const v = require('./shared/voiceSystem'); VoiceSystem = v.VoiceSystem; VoiceChatHandler = v.VoiceChatHandler; } catch (e) {}
+let UltimateBotIntelligence = null;
+try { UltimateBotIntelligence = require('./shared/ultimateIntelligence').UltimateBotIntelligence; } catch (e) {}
+let FreeRoamSystem = null;
+try { FreeRoamSystem = require('./freeroam'); } catch (e) {}
+let TheBrain = null;
+try { TheBrain = require('./sentient').TheBrain; } catch (e) {}
+let ApexBrain = null;
+try { ApexBrain = require('./apex').ApexBrain; } catch (e) {}
+let autonomousChat = null;
+try { autonomousChat = require('./shared/autonomousChat'); } catch (e) {}
+let mediaGenerator = null;
+try { mediaGenerator = require('./shared/mediaGenerator'); } catch (e) {}
 
 const MY_BOT_ID = 'madam';
 const BOT_NAME = 'Madam Nazar';
 const PREFIX = '?';
 const OTHER_BOT_IDS = [process.env.LESTER_BOT_ID, process.env.PAVEL_BOT_ID, process.env.CRIPPS_BOT_ID, process.env.CHIEF_BOT_ID].filter(Boolean);
 const ALLOWED_CHANNEL_IDS = process.env.ALLOWED_CHANNEL_IDS?.split(',').filter(Boolean) || [];
+
+// HARDCODED CHANNEL ID FOR POSTING
+const NAZAR_CHANNEL_ID = '1453290814217130079';
 
 const NAZAR_SYSTEM = `You are Madam Nazar, the mysterious traveling collector from Red Dead Online.
 
@@ -85,13 +96,14 @@ const client = new Client({
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false });
+client.db = pool;
 
 let intelligence = null, sentientBrain = null, apexBrain = null, freeRoam = null, voiceSystem = null, voiceChatHandler = null;
 const conversationMemory = new Map();
 const activeConversations = new Map();
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// DAILY LOCATION POSTING
+// DAILY LOCATION POSTING - FIXED
 // ═══════════════════════════════════════════════════════════════════════════════
 async function postDailyLocation() {
   try {
@@ -101,51 +113,96 @@ async function postDailyLocation() {
       .setDescription(`*${location.description}*\n\nThe spirits have guided me to **${location.name}**...`)
       .addFields(
         { name: '📍 Location', value: location.name, inline: true },
-        { name: '🗺️ Region', value: location.region, inline: true }
+        { name: '🗺️ Region', value: location.region, inline: true },
+        { name: '🗺️ Interactive Map', value: '[Jean Ropke Collector Map](https://jeanropke.github.io/RDR2CollectorsMap/)', inline: false }
       )
       .setColor(0x800080)
-      .setFooter({ text: 'Find me before I move on... The spirits are restless.' })
+      .setFooter({ text: 'Find me before I move on... Location changes daily at 6 AM UTC' })
       .setTimestamp();
 
-    // Get all guilds and find madam-nazar channels
-    for (const guild of client.guilds.cache.values()) {
-      const channel = guild.channels.cache.find(c => 
-        c.name === 'madam-nazar' || c.name === 'nazar-location' || c.name === 'collector'
-      );
-      if (channel) {
-        try {
-          // Delete old location posts
-          const msgs = await channel.messages.fetch({ limit: 10 });
-          const oldPosts = msgs.filter(m => m.author.id === client.user.id && m.embeds.length > 0);
-          for (const [id, msg] of oldPosts) {
-            await msg.delete().catch(() => {});
-          }
-          await channel.send({ embeds: [embed] });
-        } catch (e) { console.error('Failed to post in', guild.name); }
+    // Method 1: Try hardcoded channel ID first
+    let channel = client.channels.cache.get(NAZAR_CHANNEL_ID);
+    
+    // Method 2: Search by name
+    if (!channel) {
+      for (const guild of client.guilds.cache.values()) {
+        const found = guild.channels.cache.find(c => 
+          c.name === 'madam-nazar' || c.name === 'nazar-location'
+        );
+        if (found) {
+          channel = found;
+          break;
+        }
       }
     }
-    console.log('[MADAM] Daily location posted:', location.name);
-  } catch (e) { console.error('Daily location error:', e); }
+    
+    if (channel) {
+      // Delete old location posts
+      try {
+        const msgs = await channel.messages.fetch({ limit: 10 });
+        const oldPosts = msgs.filter(m => m.author.id === client.user.id && m.embeds.length > 0);
+        for (const [id, msg] of oldPosts) {
+          await msg.delete().catch(() => {});
+        }
+      } catch (e) {}
+      
+      await channel.send({ embeds: [embed] });
+      console.log('[MADAM] Daily location posted:', location.name);
+    } else {
+      console.log('[MADAM] Could not find madam-nazar channel');
+    }
+  } catch (e) { 
+    console.error('[MADAM] Daily location error:', e.message); 
+  }
 }
 
 client.once(Events.ClientReady, async () => {
   console.log(`[MADAM ULTIMATE] Logged in as ${client.user.tag}`);
 
-  try { intelligence = new UltimateBotIntelligence(pool, client, MY_BOT_ID); await intelligence.initialize(); console.log('🧠 V6 Ultimate Intelligence: ONLINE'); } catch (e) { console.error('V6 init:', e.message); }
-  try { sentientBrain = new TheBrain(MY_BOT_ID, pool); console.log('🧬 Sentient Brain: ONLINE'); } catch (e) {}
-  try { apexBrain = new ApexBrain(MY_BOT_ID, pool); console.log('⚡ Apex Brain: ONLINE'); } catch (e) {}
-  try { freeRoam = new FreeRoamSystem(MY_BOT_ID, client.user.id, NAZAR_SYSTEM, pool); console.log('🚀 FreeRoam: ONLINE'); } catch (e) {}
-  if (process.env.ELEVENLABS_API_KEY) { try { voiceSystem = new VoiceSystem(MY_BOT_ID, process.env.ELEVENLABS_API_KEY); voiceChatHandler = new VoiceChatHandler(client, voiceSystem, NAZAR_SYSTEM, anthropic); voiceChatHandler.setupListeners(); console.log('🎙️ Voice: ONLINE'); } catch (e) {} }
+  if (UltimateBotIntelligence) {
+    try { 
+      intelligence = new UltimateBotIntelligence(pool, client, MY_BOT_ID); 
+      await intelligence.initialize(); 
+      console.log('🧠 V6 Ultimate Intelligence: ONLINE'); 
+    } catch (e) { console.error('V6 init:', e.message); }
+  }
+  if (TheBrain) try { sentientBrain = new TheBrain(MY_BOT_ID, pool); console.log('🧬 Sentient Brain: ONLINE'); } catch (e) {}
+  if (ApexBrain) try { apexBrain = new ApexBrain(MY_BOT_ID, pool); console.log('⚡ Apex Brain: ONLINE'); } catch (e) {}
+  if (FreeRoamSystem) try { freeRoam = new FreeRoamSystem(MY_BOT_ID, client.user.id, NAZAR_SYSTEM, pool); console.log('🚀 FreeRoam: ONLINE'); } catch (e) {}
+  if (VoiceSystem && process.env.ELEVENLABS_API_KEY) { 
+    try { 
+      voiceSystem = new VoiceSystem(MY_BOT_ID, process.env.ELEVENLABS_API_KEY); 
+      voiceChatHandler = new VoiceChatHandler(client, voiceSystem, NAZAR_SYSTEM, anthropic); 
+      voiceChatHandler.setupListeners(); 
+      console.log('🎙️ Voice: ONLINE'); 
+    } catch (e) {} 
+  }
 
   client.user.setPresence({ activities: [{ name: 'the spirits... | ?nazar', type: 3 }], status: 'online' });
   
   // Schedule daily location post at 6 AM UTC
-  cron.schedule('0 6 * * *', postDailyLocation);
+  cron.schedule('0 6 * * *', () => {
+    console.log('[MADAM] Scheduled daily post triggered');
+    postDailyLocation();
+  }, { timezone: 'UTC' });
   
-  // Post on startup after delay
-  setTimeout(postDailyLocation, 30000);
+  // Post on startup after 15 second delay
+  setTimeout(() => {
+    console.log('[MADAM] Posting startup location...');
+    postDailyLocation();
+  }, 15000);
   
-  if (ALLOWED_CHANNEL_IDS.length > 0) setTimeout(() => { try { autonomousChat.startAutonomous(ALLOWED_CHANNEL_IDS.map(id => client.channels.cache.get(id)).filter(Boolean), { botId: MY_BOT_ID, botName: BOT_NAME, client, anthropic, pool, intelligence, personality: NAZAR_SYSTEM, otherBotIds: OTHER_BOT_IDS }); } catch (e) {} }, 20000);
+  if (autonomousChat && ALLOWED_CHANNEL_IDS.length > 0) {
+    setTimeout(() => { 
+      try { 
+        autonomousChat.startAutonomous(
+          ALLOWED_CHANNEL_IDS.map(id => client.channels.cache.get(id)).filter(Boolean), 
+          { botId: MY_BOT_ID, botName: BOT_NAME, client, anthropic, pool, intelligence, personality: NAZAR_SYSTEM, otherBotIds: OTHER_BOT_IDS }
+        ); 
+      } catch (e) {} 
+    }, 20000);
+  }
+  
   if (intelligence) await intelligence.broadcastToOtherBots('bot_online', { botId: MY_BOT_ID, timestamp: new Date().toISOString() });
   setInterval(() => { if (intelligence) intelligence.runMaintenance().catch(console.error); }, 6 * 60 * 60 * 1000);
   console.log('[MADAM] ALL SYSTEMS ONLINE');
@@ -156,6 +213,9 @@ function isInActiveConversation(channelId, userId) { const c = activeConversatio
 function trackConversation(channelId, userId) { activeConversations.set(channelId, { userId, lastTime: Date.now() }); }
 
 async function checkShouldRespond(message) {
+  // NEVER respond in counting channel
+  if (message.channel.name === 'counting') return false;
+  
   if (message.channel.name === 'talk-to-nazar' || message.channel.name === 'talk-to-madam') return true;
   if (isInActiveConversation(message.channel.id, message.author.id)) return true;
   if (message.mentions.has(client.user)) return true;
@@ -183,10 +243,6 @@ async function generateResponse(message) {
     if (intelligence && ctx) { 
       reply = await intelligence.processOutgoing(message, reply, ctx); 
       await intelligence.storeConversationMemory(message, reply);
-      // Track prophecies
-      if (reply.toLowerCase().includes('foresee') || reply.toLowerCase().includes('predict') || reply.toLowerCase().includes('future') || reply.toLowerCase().includes('destiny')) {
-        try { await intelligence.makeProphecy?.(message.author.id, reply); } catch (e) {}
-      }
     }
     history.push({ role: 'assistant', content: reply });
     conversationMemory.set(message.author.id, history);
@@ -196,7 +252,7 @@ async function generateResponse(message) {
     trackConversation(message.channel.id, message.author.id);
     
     if (intelligence?.learning) await intelligence.learning.recordResponse(sent.id, message.channel.id, message.author.id, 'reply', 'general', reply.length);
-    try { await mediaGenerator.handleBotMedia(MY_BOT_ID, reply, message.channel); } catch (e) {}
+    if (mediaGenerator) try { await mediaGenerator.handleBotMedia(MY_BOT_ID, reply, message.channel); } catch (e) {}
   } catch (e) { console.error('Response error:', e); await message.reply("*the crystal ball clouds over* ...the spirits are silent for now..."); }
 }
 
@@ -205,16 +261,22 @@ client.on(Events.MessageCreate, async (message) => {
   if (message.author.id === client.user.id) return;
   if (!message.guild) { await generateResponse(message); return; }
 
+  // NEVER respond in counting channel
+  if (message.channel.name === 'counting') return;
+
   // Commands
   if (message.content.startsWith(PREFIX)) {
     const args = message.content.slice(PREFIX.length).trim().split(/ +/);
     const cmd = args.shift().toLowerCase();
     
-    if (cmd === 'nazar' || cmd === 'location') {
+    if (cmd === 'nazar' || cmd === 'location' || cmd === 'where') {
       const loc = getTodaysLocation();
       const embed = new EmbedBuilder()
         .setTitle('🔮 Find Me Today...')
         .setDescription(`*${loc.description}*\n\nI am at **${loc.name}** in **${loc.region}**...`)
+        .addFields(
+          { name: '🗺️ Interactive Map', value: '[Jean Ropke Collector Map](https://jeanropke.github.io/RDR2CollectorsMap/)', inline: false }
+        )
         .setColor(0x800080);
       await message.reply({ embeds: [embed] });
       return;
@@ -233,11 +295,16 @@ client.on(Events.MessageCreate, async (message) => {
       return;
     }
     if (cmd === 'help') {
-      const embed = new EmbedBuilder().setTitle('🔮 Madam Nazar - Collector & Fortune Teller').setDescription("*The spirits guide my words...*").addFields(
-        { name: '📍 Location', value: '`?nazar` - Where am I today?\n`?location` - Same thing' },
-        { name: '🃏 Fortunes', value: '`?fortune` - Receive a prophecy\n`?prophecy` - Same thing' },
-        { name: '💬 Chat', value: 'Just speak to me... I sense your questions.' }
-      ).setColor(0x800080).setFooter({ text: 'ULTIMATE Edition' });
+      const embed = new EmbedBuilder()
+        .setTitle('🔮 Madam Nazar - Collector & Fortune Teller')
+        .setDescription("*The spirits guide my words...*")
+        .addFields(
+          { name: '📍 Location', value: '`?nazar` - Where am I today?\n`?location` - Same thing\n`?where` - Same thing' },
+          { name: '🃏 Fortunes', value: '`?fortune` - Receive a prophecy\n`?prophecy` - Same thing' },
+          { name: '💬 Chat', value: 'Just speak to me... I sense your questions.' }
+        )
+        .setColor(0x800080)
+        .setFooter({ text: 'ULTIMATE Edition • Daily location at 6 AM UTC' });
       await message.reply({ embeds: [embed] });
       return;
     }

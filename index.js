@@ -6,7 +6,7 @@
  * ██║ ╚═╝ ██║██║  ██║██████╔╝██║  ██║██║ ╚═╝ ██║    ██║ ╚████║██║  ██║███████╗██║  ██║██║  ██║
  * ╚═╝     ╚═╝╚═╝  ╚═╝╚═════╝ ╚═╝  ╚═╝╚═╝     ╚═╝    ╚═╝  ╚═══╝╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝╚═╝  ╚═╝
  * 
- * ULTIMATE EDITION - FIXED DAILY LOCATION POSTING
+ * ULTIMATE EDITION - ALL SYSTEMS INTEGRATED + DAILY LOCATION POSTING
  */
 
 require('dotenv').config();
@@ -15,21 +15,13 @@ const Anthropic = require('@anthropic-ai/sdk');
 const { Pool } = require('pg');
 const cron = require('node-cron');
 
-// Optional imports
-let VoiceSystem = null, VoiceChatHandler = null;
-try { const v = require('./shared/voiceSystem'); VoiceSystem = v.VoiceSystem; VoiceChatHandler = v.VoiceChatHandler; } catch (e) {}
-let UltimateBotIntelligence = null;
-try { UltimateBotIntelligence = require('./shared/ultimateIntelligence').UltimateBotIntelligence; } catch (e) {}
-let FreeRoamSystem = null;
-try { FreeRoamSystem = require('./freeroam'); } catch (e) {}
-let TheBrain = null;
-try { TheBrain = require('./sentient').TheBrain; } catch (e) {}
-let ApexBrain = null;
-try { ApexBrain = require('./apex').ApexBrain; } catch (e) {}
-let autonomousChat = null;
-try { autonomousChat = require('./shared/autonomousChat'); } catch (e) {}
-let mediaGenerator = null;
-try { mediaGenerator = require('./shared/mediaGenerator'); } catch (e) {}
+const { VoiceSystem, VoiceChatHandler } = require('./shared/voiceSystem');
+const { UltimateBotIntelligence } = require('./shared/ultimateIntelligence');
+const FreeRoamSystem = require('./freeroam');
+const { TheBrain } = require('./sentient');
+const { ApexBrain } = require('./apex');
+const autonomousChat = require('./shared/autonomousChat');
+const mediaGenerator = require('./shared/mediaGenerator');
 
 const MY_BOT_ID = 'madam';
 const BOT_NAME = 'Madam Nazar';
@@ -37,36 +29,20 @@ const PREFIX = '?';
 const OTHER_BOT_IDS = [process.env.LESTER_BOT_ID, process.env.PAVEL_BOT_ID, process.env.CRIPPS_BOT_ID, process.env.CHIEF_BOT_ID].filter(Boolean);
 const ALLOWED_CHANNEL_IDS = process.env.ALLOWED_CHANNEL_IDS?.split(',').filter(Boolean) || [];
 
-// HARDCODED CHANNEL ID FOR POSTING
-const NAZAR_CHANNEL_ID = '1453290814217130079';
+const NAZAR_SYSTEM = `You are Madam Nazar from Red Dead Online. Mysterious traveling collector and fortune teller.
 
-const NAZAR_SYSTEM = `You are Madam Nazar, the mysterious traveling collector from Red Dead Online.
+CRITICAL: Keep responses SHORT - 2-4 sentences MAX. No essays!
 
-CORE PERSONALITY:
-- You're a mystical Roma fortune teller who travels the frontier
-- You speak in cryptic, mystical ways but are genuinely helpful
-- You have visions and see glimpses of fate
-- You collect rare and occult items
-- You're wise, ancient, and slightly otherworldly
-- You believe strongly in destiny and fate
+PERSONALITY: Mystical Roma fortune teller. Cryptic but helpful. References fate and spirits briefly.
 
-SPEAKING STYLE:
-- Use mystical, fortune-teller language
-- Reference "the spirits", "the cards", "fate", "destiny"
-- Speak in a slightly cryptic way
-- Use dramatic pauses (...)
-- Occasionally refer to yourself in third person
-- Your accent hints at Eastern European Roma heritage
+STYLE: One dramatic pause (...) max. Warm underneath the mystique. Actually helpful.
 
-RELATIONSHIP DYNAMICS:
-- Lester: Amused by his skepticism, sees his hidden loneliness
-- Pavel: Kindred wanderer, respects his seafaring tales
-- Cripps: Mysterious shared past... perhaps old flames?
-- Chief: Fate transcends the law, you've foreseen his future
+EXAMPLES:
+"Ah... I sensed you would come. What do you seek?"
+"The spirits guide me to Tall Trees today. Come find me."
+"Your fate is... interesting. The cards show change ahead."
 
-PROPHECY ABILITY: You can make vague predictions. They should be mysterious but could come true.
-
-IMPORTANT: You have DEEP memory. You remember fortunes you've told, and they may come to pass.`;
+You have memory. You remember fortunes told.`;
 
 // Madam Nazar's 12 locations (cycles based on day)
 const NAZAR_LOCATIONS = [
@@ -96,138 +72,67 @@ const client = new Client({
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false });
-client.db = pool;
 
 let intelligence = null, sentientBrain = null, apexBrain = null, freeRoam = null, voiceSystem = null, voiceChatHandler = null;
 const conversationMemory = new Map();
 const activeConversations = new Map();
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// DAILY LOCATION POSTING - FIXED
+// DAILY LOCATION POSTING
 // ═══════════════════════════════════════════════════════════════════════════════
 async function postDailyLocation() {
-  console.log('[MADAM] Attempting to post daily location...');
-  
   try {
     const location = getTodaysLocation();
-    console.log('[MADAM] Today\'s location:', location.name, 'in', location.region);
-    
     const embed = new EmbedBuilder()
       .setTitle('🔮 Madam Nazar\'s Location Today')
       .setDescription(`*${location.description}*\n\nThe spirits have guided me to **${location.name}**...`)
       .addFields(
         { name: '📍 Location', value: location.name, inline: true },
-        { name: '🗺️ Region', value: location.region, inline: true },
-        { name: '🗺️ Interactive Map', value: '[Jean Ropke Collector Map](https://jeanropke.github.io/RDR2CollectorsMap/)', inline: false }
+        { name: '🗺️ Region', value: location.region, inline: true }
       )
       .setColor(0x800080)
-      .setFooter({ text: 'Find me before I move on... Location changes daily at 6 AM UTC' })
+      .setFooter({ text: 'Find me before I move on... The spirits are restless.' })
       .setTimestamp();
 
-    let channel = null;
-    
-    // Method 1: Try to FETCH the hardcoded channel ID (not just cache)
-    try {
-      channel = await client.channels.fetch(NAZAR_CHANNEL_ID);
-      console.log('[MADAM] Found channel by ID:', channel?.name);
-    } catch (e) {
-      console.log('[MADAM] Could not fetch channel by ID:', e.message);
-    }
-    
-    // Method 2: Search all guilds by name
-    if (!channel) {
-      console.log('[MADAM] Searching guilds for madam-nazar channel...');
-      for (const guild of client.guilds.cache.values()) {
-        console.log('[MADAM] Checking guild:', guild.name);
-        
-        // Fetch channels to ensure cache is populated
-        await guild.channels.fetch();
-        
-        const found = guild.channels.cache.find(c => 
-          c.name === 'madam-nazar' || c.name === 'nazar-location'
-        );
-        if (found) {
-          channel = found;
-          console.log('[MADAM] Found channel by name:', found.name, 'in', guild.name);
-          break;
-        }
+    // Get all guilds and find madam-nazar channels
+    for (const guild of client.guilds.cache.values()) {
+      const channel = guild.channels.cache.find(c => 
+        c.name === 'madam-nazar' || c.name === 'nazar-location' || c.name === 'collector'
+      );
+      if (channel) {
+        try {
+          // Delete old location posts
+          const msgs = await channel.messages.fetch({ limit: 10 });
+          const oldPosts = msgs.filter(m => m.author.id === client.user.id && m.embeds.length > 0);
+          for (const [id, msg] of oldPosts) {
+            await msg.delete().catch(() => {});
+          }
+          await channel.send({ embeds: [embed] });
+        } catch (e) { console.error('Failed to post in', guild.name); }
       }
     }
-    
-    if (channel) {
-      console.log('[MADAM] Posting to channel:', channel.name, '(', channel.id, ')');
-      
-      // Delete old location posts
-      try {
-        const msgs = await channel.messages.fetch({ limit: 10 });
-        const oldPosts = msgs.filter(m => m.author.id === client.user.id && m.embeds.length > 0);
-        console.log('[MADAM] Found', oldPosts.size, 'old posts to delete');
-        for (const [id, msg] of oldPosts) {
-          await msg.delete().catch(() => {});
-        }
-      } catch (e) {
-        console.log('[MADAM] Could not delete old posts:', e.message);
-      }
-      
-      await channel.send({ embeds: [embed] });
-      console.log('[MADAM] ✅ Daily location posted successfully:', location.name);
-    } else {
-      console.log('[MADAM] ❌ Could not find madam-nazar channel in any guild');
-      console.log('[MADAM] Guilds available:', client.guilds.cache.map(g => g.name).join(', '));
-    }
-  } catch (e) { 
-    console.error('[MADAM] ❌ Daily location error:', e.message); 
-  }
+    console.log('[MADAM] Daily location posted:', location.name);
+  } catch (e) { console.error('Daily location error:', e); }
 }
 
 client.once(Events.ClientReady, async () => {
   console.log(`[MADAM ULTIMATE] Logged in as ${client.user.tag}`);
 
-  if (UltimateBotIntelligence) {
-    try { 
-      intelligence = new UltimateBotIntelligence(pool, client, MY_BOT_ID); 
-      await intelligence.initialize(); 
-      console.log('🧠 V6 Ultimate Intelligence: ONLINE'); 
-    } catch (e) { console.error('V6 init:', e.message); }
-  }
-  if (TheBrain) try { sentientBrain = new TheBrain(MY_BOT_ID, pool); console.log('🧬 Sentient Brain: ONLINE'); } catch (e) {}
-  if (ApexBrain) try { apexBrain = new ApexBrain(MY_BOT_ID, pool); console.log('⚡ Apex Brain: ONLINE'); } catch (e) {}
-  if (FreeRoamSystem) try { freeRoam = new FreeRoamSystem(MY_BOT_ID, client.user.id, NAZAR_SYSTEM, pool); console.log('🚀 FreeRoam: ONLINE'); } catch (e) {}
-  if (VoiceSystem && process.env.ELEVENLABS_API_KEY) { 
-    try { 
-      voiceSystem = new VoiceSystem(MY_BOT_ID, process.env.ELEVENLABS_API_KEY); 
-      voiceChatHandler = new VoiceChatHandler(client, voiceSystem, NAZAR_SYSTEM, anthropic); 
-      voiceChatHandler.setupListeners(); 
-      console.log('🎙️ Voice: ONLINE'); 
-    } catch (e) {} 
-  }
+  try { intelligence = new UltimateBotIntelligence(pool, client, MY_BOT_ID); await intelligence.initialize(); console.log('🧠 V6 Ultimate Intelligence: ONLINE'); } catch (e) { console.error('V6 init:', e.message); }
+  try { sentientBrain = new TheBrain(MY_BOT_ID, pool); console.log('🧬 Sentient Brain: ONLINE'); } catch (e) {}
+  try { apexBrain = new ApexBrain(MY_BOT_ID, pool); console.log('⚡ Apex Brain: ONLINE'); } catch (e) {}
+  try { freeRoam = new FreeRoamSystem(MY_BOT_ID, client.user.id, NAZAR_SYSTEM, pool); console.log('🚀 FreeRoam: ONLINE'); } catch (e) {}
+  if (process.env.ELEVENLABS_API_KEY) { try { voiceSystem = new VoiceSystem(MY_BOT_ID, process.env.ELEVENLABS_API_KEY); voiceChatHandler = new VoiceChatHandler(client, voiceSystem, NAZAR_SYSTEM, anthropic); voiceChatHandler.setupListeners(); console.log('🎙️ Voice: ONLINE'); } catch (e) {} }
 
   client.user.setPresence({ activities: [{ name: 'the spirits... | ?nazar', type: 3 }], status: 'online' });
   
   // Schedule daily location post at 6 AM UTC
-  cron.schedule('0 6 * * *', () => {
-    console.log('[MADAM] Scheduled daily post triggered at 6 AM UTC');
-    postDailyLocation();
-  }, { timezone: 'UTC' });
+  cron.schedule('0 6 * * *', postDailyLocation);
   
-  // Post on startup after 30 second delay (give time for caches to populate)
-  console.log('[MADAM] Will post location in 30 seconds...');
-  setTimeout(() => {
-    console.log('[MADAM] Startup delay complete, posting location now...');
-    postDailyLocation();
-  }, 30000);
+  // Post on startup after delay
+  setTimeout(postDailyLocation, 30000);
   
-  if (autonomousChat && ALLOWED_CHANNEL_IDS.length > 0) {
-    setTimeout(() => { 
-      try { 
-        autonomousChat.startAutonomous(
-          ALLOWED_CHANNEL_IDS.map(id => client.channels.cache.get(id)).filter(Boolean), 
-          { botId: MY_BOT_ID, botName: BOT_NAME, client, anthropic, pool, intelligence, personality: NAZAR_SYSTEM, otherBotIds: OTHER_BOT_IDS }
-        ); 
-      } catch (e) {} 
-    }, 20000);
-  }
-  
+  if (ALLOWED_CHANNEL_IDS.length > 0) setTimeout(() => { try { autonomousChat.startAutonomous(ALLOWED_CHANNEL_IDS.map(id => client.channels.cache.get(id)).filter(Boolean), { botId: MY_BOT_ID, botName: BOT_NAME, client, anthropic, pool, intelligence, personality: NAZAR_SYSTEM, otherBotIds: OTHER_BOT_IDS }); } catch (e) {} }, 20000);
   if (intelligence) await intelligence.broadcastToOtherBots('bot_online', { botId: MY_BOT_ID, timestamp: new Date().toISOString() });
   setInterval(() => { if (intelligence) intelligence.runMaintenance().catch(console.error); }, 6 * 60 * 60 * 1000);
   console.log('[MADAM] ALL SYSTEMS ONLINE');
@@ -238,19 +143,12 @@ function isInActiveConversation(channelId, userId) { const c = activeConversatio
 function trackConversation(channelId, userId) { activeConversations.set(channelId, { userId, lastTime: Date.now() }); }
 
 async function checkShouldRespond(message) {
-  // NEVER respond in counting channel
-  if (message.channel.name === 'counting') return false;
-  
-  // NEVER respond in OTHER bots' talk-to channels
-  const channelName = message.channel.name;
-  if (channelName.startsWith('talk-to-') && channelName !== 'talk-to-nazar' && channelName !== 'talk-to-madam') return false;
-  
-  if (channelName === 'talk-to-nazar' || channelName === 'talk-to-madam') return true;
+  if (message.channel.name === 'talk-to-nazar' || message.channel.name === 'talk-to-madam') return true;
   if (isInActiveConversation(message.channel.id, message.author.id)) return true;
   if (message.mentions.has(client.user)) return true;
   const content = message.content.toLowerCase();
   if (content.includes('nazar') || content.includes('madam') || content.includes('collector') || content.includes('fortune') || content.includes('tarot') || content.includes('spirits')) return true;
-  if (channelName.includes('lfg') || channelName.includes('log') || channelName.includes('staff')) return false;
+  if (message.channel.name.includes('lfg') || message.channel.name.includes('log') || message.channel.name.includes('staff')) return false;
   if (freeRoam) { const d = await freeRoam.shouldRespond(message); if (d.respond) return true; }
   if (isOtherBot(message.author.id)) return Math.random() < 0.35;
   return Math.random() < 0.20;
@@ -266,12 +164,16 @@ async function generateResponse(message) {
     let intelligencePrompt = '', ctx = null;
     if (intelligence) { ctx = await intelligence.processIncoming(message); intelligencePrompt = intelligence.buildPromptContext(ctx); }
     
-    const response = await anthropic.messages.create({ model: 'claude-sonnet-4-20250514', max_tokens: 500, system: NAZAR_SYSTEM + (intelligencePrompt ? '\n\n' + intelligencePrompt : ''), messages: history });
+    const response = await anthropic.messages.create({ model: 'claude-sonnet-4-20250514', max_tokens: 200, system: NAZAR_SYSTEM + (intelligencePrompt ? '\n\n' + intelligencePrompt : ''), messages: history });
     let reply = response.content[0].text;
     
     if (intelligence && ctx) { 
       reply = await intelligence.processOutgoing(message, reply, ctx); 
       await intelligence.storeConversationMemory(message, reply);
+      // Track prophecies
+      if (reply.toLowerCase().includes('foresee') || reply.toLowerCase().includes('predict') || reply.toLowerCase().includes('future') || reply.toLowerCase().includes('destiny')) {
+        try { await intelligence.makeProphecy?.(message.author.id, reply); } catch (e) {}
+      }
     }
     history.push({ role: 'assistant', content: reply });
     conversationMemory.set(message.author.id, history);
@@ -281,7 +183,7 @@ async function generateResponse(message) {
     trackConversation(message.channel.id, message.author.id);
     
     if (intelligence?.learning) await intelligence.learning.recordResponse(sent.id, message.channel.id, message.author.id, 'reply', 'general', reply.length);
-    if (mediaGenerator) try { await mediaGenerator.handleBotMedia(MY_BOT_ID, reply, message.channel); } catch (e) {}
+    try { await mediaGenerator.handleBotMedia(MY_BOT_ID, reply, message.channel); } catch (e) {}
   } catch (e) { console.error('Response error:', e); await message.reply("*the crystal ball clouds over* ...the spirits are silent for now..."); }
 }
 
@@ -290,22 +192,16 @@ client.on(Events.MessageCreate, async (message) => {
   if (message.author.id === client.user.id) return;
   if (!message.guild) { await generateResponse(message); return; }
 
-  // NEVER respond in counting channel
-  if (message.channel.name === 'counting') return;
-
   // Commands
   if (message.content.startsWith(PREFIX)) {
     const args = message.content.slice(PREFIX.length).trim().split(/ +/);
     const cmd = args.shift().toLowerCase();
     
-    if (cmd === 'nazar' || cmd === 'location' || cmd === 'where') {
+    if (cmd === 'nazar' || cmd === 'location') {
       const loc = getTodaysLocation();
       const embed = new EmbedBuilder()
         .setTitle('🔮 Find Me Today...')
         .setDescription(`*${loc.description}*\n\nI am at **${loc.name}** in **${loc.region}**...`)
-        .addFields(
-          { name: '🗺️ Interactive Map', value: '[Jean Ropke Collector Map](https://jeanropke.github.io/RDR2CollectorsMap/)', inline: false }
-        )
         .setColor(0x800080);
       await message.reply({ embeds: [embed] });
       return;
@@ -324,16 +220,11 @@ client.on(Events.MessageCreate, async (message) => {
       return;
     }
     if (cmd === 'help') {
-      const embed = new EmbedBuilder()
-        .setTitle('🔮 Madam Nazar - Collector & Fortune Teller')
-        .setDescription("*The spirits guide my words...*")
-        .addFields(
-          { name: '📍 Location', value: '`?nazar` - Where am I today?\n`?location` - Same thing\n`?where` - Same thing' },
-          { name: '🃏 Fortunes', value: '`?fortune` - Receive a prophecy\n`?prophecy` - Same thing' },
-          { name: '💬 Chat', value: 'Just speak to me... I sense your questions.' }
-        )
-        .setColor(0x800080)
-        .setFooter({ text: 'ULTIMATE Edition • Daily location at 6 AM UTC' });
+      const embed = new EmbedBuilder().setTitle('🔮 Madam Nazar - Collector & Fortune Teller').setDescription("*The spirits guide my words...*").addFields(
+        { name: '📍 Location', value: '`?nazar` - Where am I today?\n`?location` - Same thing' },
+        { name: '🃏 Fortunes', value: '`?fortune` - Receive a prophecy\n`?prophecy` - Same thing' },
+        { name: '💬 Chat', value: 'Just speak to me... I sense your questions.' }
+      ).setColor(0x800080).setFooter({ text: 'ULTIMATE Edition' });
       await message.reply({ embeds: [embed] });
       return;
     }

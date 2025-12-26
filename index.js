@@ -23,7 +23,11 @@ const { ApexBrain } = require('./apex');
 const autonomousChat = require('./shared/autonomousChat');
 const mediaGenerator = require('./shared/mediaGenerator');
 
-const MY_BOT_ID = 'madam';
+// HIVEMIND - Shared Intelligence System
+let hiveMind = null;
+try { hiveMind = require('./shared/hiveMind'); } catch (e) { console.log('[NAZAR] HiveMind not found, using basic responses'); }
+
+const MY_BOT_ID = 'nazar';
 const BOT_NAME = 'Madam Nazar';
 const PREFIX = '?';
 const OTHER_BOT_IDS = [process.env.LESTER_BOT_ID, process.env.PAVEL_BOT_ID, process.env.CRIPPS_BOT_ID, process.env.CHIEF_BOT_ID].filter(Boolean);
@@ -152,25 +156,20 @@ function isInActiveConversation(channelId, userId) { const c = activeConversatio
 function trackConversation(channelId, userId) { activeConversations.set(channelId, { userId, lastTime: Date.now() }); }
 
 async function checkShouldRespond(message) {
-  const channelName = message.channel.name;
+  if (hiveMind) {
+    const decision = await hiveMind.shouldBotRespond(MY_BOT_ID, message, client);
+    if (decision.shouldRespond) console.log(`[NAZAR] Responding - reason: ${decision.reason}`);
+    return decision.shouldRespond;
+  }
   
-  // ONLY respond in HER talk-to channel
-  if (channelName === 'talk-to-nazar' || channelName === 'talk-to-madam') return true;
-  
-  // NEVER respond in OTHER bots' talk-to channels
-  if (channelName.startsWith('talk-to-')) return false;
-  
-  // Never in counting
+  const channelName = message.channel.name || '';
   if (channelName === 'counting') return false;
-  
-  if (isInActiveConversation(message.channel.id, message.author.id)) return true;
+  if (channelName.includes('lfg')) return false;
+  if (channelName === 'talk-to-nazar' || channelName === 'talk-to-madam') return true;
+  if (channelName.startsWith('talk-to-')) return false;
+  if (channelName.includes('log') || channelName.includes('staff')) return false;
   if (message.mentions.has(client.user)) return true;
-  const content = message.content.toLowerCase();
-  if (content.includes('nazar') || content.includes('madam') || content.includes('collector') || content.includes('fortune') || content.includes('tarot') || content.includes('spirits')) return true;
-  if (channelName.includes('lfg') || channelName.includes('log') || channelName.includes('staff')) return false;
-  if (freeRoam) { const d = await freeRoam.shouldRespond(message); if (d.respond) return true; }
-  if (isOtherBot(message.author.id)) return Math.random() < 0.35;
-  return Math.random() < 0.20;
+  return false;
 }
 
 async function generateResponse(message) {
@@ -180,16 +179,28 @@ async function generateResponse(message) {
 
   try {
     await message.channel.sendTyping();
+    
+    let contextAdditions = '';
+    if (hiveMind) {
+      const mood = await hiveMind.getBotMood(MY_BOT_ID);
+      const moodPrompt = hiveMind.getMoodPrompt(mood);
+      if (moodPrompt) contextAdditions += `\n\nCURRENT MOOD: ${moodPrompt}`;
+      const memoryContext = await hiveMind.buildMemoryContext(message, MY_BOT_ID);
+      if (memoryContext) contextAdditions += memoryContext;
+      await hiveMind.trackUserActivity(message.author.id, message.author.username, message.guild?.id);
+      if (await hiveMind.isRegularUser(message.author.id)) contextAdditions += '\n\nThis user is a regular.';
+    }
+    
     let intelligencePrompt = '', ctx = null;
     if (intelligence) { ctx = await intelligence.processIncoming(message); intelligencePrompt = intelligence.buildPromptContext(ctx); }
     
-    const response = await anthropic.messages.create({ model: 'claude-sonnet-4-20250514', max_tokens: 200, system: NAZAR_SYSTEM + (intelligencePrompt ? '\n\n' + intelligencePrompt : ''), messages: history });
+    const fullSystem = NAZAR_SYSTEM + contextAdditions + (intelligencePrompt ? '\n\n' + intelligencePrompt : '');
+    const response = await anthropic.messages.create({ model: 'claude-sonnet-4-20250514', max_tokens: 200, system: fullSystem, messages: history });
     let reply = response.content[0].text;
     
     if (intelligence && ctx) { 
       reply = await intelligence.processOutgoing(message, reply, ctx); 
       await intelligence.storeConversationMemory(message, reply);
-      // Track prophecies
       if (reply.toLowerCase().includes('foresee') || reply.toLowerCase().includes('predict') || reply.toLowerCase().includes('future') || reply.toLowerCase().includes('destiny')) {
         try { await intelligence.makeProphecy?.(message.author.id, reply); } catch (e) {}
       }
@@ -200,6 +211,11 @@ async function generateResponse(message) {
     await new Promise(r => setTimeout(r, Math.min(reply.length * 40, 5000)));
     const sent = await message.reply(reply);
     trackConversation(message.channel.id, message.author.id);
+    
+    if (hiveMind) {
+      await hiveMind.recordBotSpoke(MY_BOT_ID, message.channel.id);
+      await hiveMind.storeInteraction(message.author.id, message.author.username, message.content, MY_BOT_ID, reply, message.channel.id);
+    }
     
     if (intelligence?.learning) await intelligence.learning.recordResponse(sent.id, message.channel.id, message.author.id, 'reply', 'general', reply.length);
     try { await mediaGenerator.handleBotMedia(MY_BOT_ID, reply, message.channel); } catch (e) {}

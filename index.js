@@ -267,7 +267,7 @@ client.on(Events.MessageCreate, async (message) => {
     const args = message.content.slice(PREFIX.length).trim().split(/ +/);
     const cmd = args.shift().toLowerCase();
     
-    if (cmd === 'nazar' || cmd === 'location') {
+    if (cmd === 'nazar' || cmd === 'location' || cmd === 'where') {
       const loc = getTodaysLocation();
       const embed = new EmbedBuilder()
         .setTitle('🔮 Find Me Today...')
@@ -291,7 +291,7 @@ client.on(Events.MessageCreate, async (message) => {
     }
     if (cmd === 'help') {
       const embed = new EmbedBuilder().setTitle('🔮 Madam Nazar - Collector & Fortune Teller').setDescription("*The spirits guide my words...*").addFields(
-        { name: '📍 Location', value: '`?nazar` - Where am I today?\n`?location` - Same thing' },
+        { name: '📍 Location', value: '`?nazar` - Where am I today?\n`?location` - Same thing\n`?where` - Same thing' },
         { name: '🃏 Fortunes', value: '`?fortune` - Receive a prophecy\n`?prophecy` - Same thing' },
         { name: '💬 Chat', value: 'Just speak to me... I sense your questions.' }
       ).setColor(0x800080).setFooter({ text: 'ULTIMATE Edition' });
